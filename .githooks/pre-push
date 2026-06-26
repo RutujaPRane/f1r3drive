@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+#
+# pre-push hook - Run unit tests and build before pushing
+#
+# Runs the JUnit unit test suite and assembles the shaded JAR to prevent
+# pushing code that fails tests or no longer builds.
+#
+# The e2e suite (./gradlew e2eTest) is intentionally NOT run here: it requires
+# a live F1r3fly shard and cannot run unconditionally. Run it manually when a
+# shard is available.
+#
+# Installation (run from repo root):
+#   ./scripts/setup-hooks.sh           # Recommended: uses git core.hooksPath
+#   ./scripts/setup-hooks.sh --copy    # Alternative: copies to .git/hooks/
+#
+# To bypass (use sparingly): git push --no-verify
+#
+# Environment variables:
+#   SKIP_TESTS=1   - Skip the unit test suite
+#   SKIP_BUILD=1   - Skip the shadowJar build
+#   VERBOSE=1      - Show full command output
+#
+
+set -euo pipefail
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+
+SKIP_TESTS="${SKIP_TESTS:-0}"
+SKIP_BUILD="${SKIP_BUILD:-0}"
+VERBOSE="${VERBOSE:-0}"
+
+cd "$REPO_ROOT"
+
+FAILED=0
+
+echo ""
+echo -e "${CYAN}Running pre-push checks...${NC}"
+echo "================================"
+
+# --- Unit tests ---
+if [[ "$SKIP_TESTS" == "1" ]]; then
+    echo -e "  ${CYAN}[test]${NC}  ${YELLOW}SKIP${NC} (SKIP_TESTS=1)"
+else
+    test_out=$(mktemp)
+    if ./gradlew --quiet test > "$test_out" 2>&1; then
+        echo -e "  ${CYAN}[test]${NC}  ${GREEN}PASS${NC}"
+    else
+        echo -e "  ${CYAN}[test]${NC}  ${RED}FAIL${NC}"
+        FAILED=1
+        if [[ "$VERBOSE" == "1" ]]; then
+            cat "$test_out"
+        else
+            tail -40 "$test_out"
+            echo ""
+            echo -e "  ${YELLOW}Run for details:${NC} ./gradlew test"
+            echo ""
+        fi
+    fi
+    rm -f "$test_out"
+fi
+
+# --- Build (shadowJar) ---
+if [[ "$SKIP_BUILD" == "1" ]]; then
+    echo -e "  ${CYAN}[build]${NC} ${YELLOW}SKIP${NC} (SKIP_BUILD=1)"
+else
+    build_out=$(mktemp)
+    if ./gradlew --quiet shadowJar > "$build_out" 2>&1; then
+        echo -e "  ${CYAN}[build]${NC} ${GREEN}PASS${NC}"
+    else
+        echo -e "  ${CYAN}[build]${NC} ${RED}FAIL${NC}"
+        FAILED=1
+        if [[ "$VERBOSE" == "1" ]]; then
+            cat "$build_out"
+        else
+            tail -40 "$build_out"
+            echo ""
+            echo -e "  ${YELLOW}Run for details:${NC} ./gradlew shadowJar"
+            echo ""
+        fi
+    fi
+    rm -f "$build_out"
+fi
+
+# Summary
+echo "================================"
+if [[ $FAILED -eq 0 ]]; then
+    echo -e "${GREEN}All pre-push checks passed! Proceeding with push.${NC}"
+    exit 0
+else
+    echo -e "${RED}Pre-push checks failed! Push aborted.${NC}"
+    echo ""
+    echo "Fix the issues and try again, or bypass with: git push --no-verify"
+    echo ""
+    echo "Options:"
+    echo "  SKIP_TESTS=1 git push   - Skip the unit test suite"
+    echo "  SKIP_BUILD=1 git push   - Skip the shadowJar build"
+    echo "  VERBOSE=1 git push      - Show full output"
+    exit 1
+fi

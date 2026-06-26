@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+#
+# pre-commit hook - Run formatting checks before committing
+#
+# Runs Spotless (google-java-format) in check mode to catch style issues
+# before they enter the repository. Spotless is configured with
+# `ratchetFrom 'HEAD'`, so only files changed in this commit are checked.
+#
+# To bypass (use sparingly): git commit --no-verify
+#
+# Environment variables:
+#   SKIP_SPOTLESS=1   - Skip the Spotless format check
+#   VERBOSE=1         - Show full command output
+#
+
+set -euo pipefail
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+
+SKIP_SPOTLESS="${SKIP_SPOTLESS:-0}"
+VERBOSE="${VERBOSE:-0}"
+
+cd "$REPO_ROOT"
+
+FAILED=0
+
+echo ""
+echo -e "${CYAN}Running pre-commit checks...${NC}"
+echo "================================"
+
+# --- Spotless (google-java-format) ---
+if [[ "$SKIP_SPOTLESS" == "1" ]]; then
+    echo -e "  ${CYAN}[spotless]${NC} ${YELLOW}SKIP${NC} (SKIP_SPOTLESS=1)"
+else
+    spotless_out=$(mktemp)
+    if ./gradlew --quiet spotlessCheck > "$spotless_out" 2>&1; then
+        echo -e "  ${CYAN}[spotless]${NC} ${GREEN}PASS${NC}"
+    else
+        echo -e "  ${CYAN}[spotless]${NC} ${RED}FAIL${NC}"
+        FAILED=1
+        if [[ "$VERBOSE" == "1" ]]; then
+            cat "$spotless_out"
+        else
+            echo ""
+            echo -e "  ${YELLOW}Formatting violations detected. Run:${NC}"
+            echo "    ./gradlew spotlessApply"
+            echo "  then re-stage the files and commit again."
+            echo ""
+        fi
+    fi
+    rm -f "$spotless_out"
+fi
+
+# Summary
+echo "================================"
+if [[ $FAILED -eq 0 ]]; then
+    echo -e "${GREEN}All pre-commit checks passed!${NC}"
+    exit 0
+else
+    echo -e "${RED}Pre-commit checks failed! Commit aborted.${NC}"
+    echo ""
+    echo "Fix the issues and try again, or bypass with: git commit --no-verify"
+    echo ""
+    echo "Options:"
+    echo "  SKIP_SPOTLESS=1 git commit   - Skip the format check"
+    echo "  VERBOSE=1 git commit         - Show full output"
+    exit 1
+fi

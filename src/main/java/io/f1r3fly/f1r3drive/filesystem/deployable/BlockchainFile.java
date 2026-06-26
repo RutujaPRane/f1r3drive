@@ -31,52 +31,34 @@ public class BlockchainFile extends AbstractDeployablePath implements File {
     protected long size = -1;
 
     // Illegal Filename Characters.
-    // In theory, it can't be used in filename, so it's safe to use it as a
-    // delimiter
+    // In theory, it can't be used in filename, so it's safe to use it as a delimiter
     private static String delimiter = "/";
 
     protected boolean isOtherChunksDeployed = false;
     protected Map<Integer, String> otherChunks = new ConcurrentHashMap<>();
 
-    public BlockchainFile(@NotNull BlockchainContext blockchainContext, @NotNull String name,
-            @NotNull Directory parent) {
+    public BlockchainFile(@NotNull BlockchainContext blockchainContext, @NotNull String name, @NotNull Directory parent) {
         this(blockchainContext, name, parent, true);
     }
 
-    protected BlockchainFile(@NotNull BlockchainContext blockchainContext, @NotNull String name,
-            @NotNull Directory parent, boolean sendToShard) {
+    protected BlockchainFile(@NotNull BlockchainContext blockchainContext, @NotNull String name, @NotNull Directory parent, boolean sendToShard) {
         super(blockchainContext, name, parent);
         if (sendToShard) {
             enqueueCreatingFile();
         }
         try {
-            String prefix = name.length() < 3 ? name + "___" : name;
-            cachedFile = java.io.File.createTempFile(prefix, null);
+            cachedFile = java.io.File.createTempFile(name, null);
         } catch (Exception e) {
             e.printStackTrace();
         }
     }
 
-    // New constructor log
-    {
-        log.debug("BlockchainFile instance created: " + this);
-    }
-
     private void enqueueCreatingFile() {
-        byte[] key = getSigningKey();
         refreshLastUpdated();
-        String rholang = RholangExpressionConstructor.sendEmptyFileIntoNewChanel(getAbsolutePath(), getLastUpdated() / 1000);
-        enqueueMutation(rholang, key);
+        String rholang = RholangExpressionConstructor.sendEmptyFileIntoNewChanel(getAbsolutePath(), getLastUpdated());
+        enqueueMutation(rholang);
     }
 
-    private void markDirty(String reason) {
-        if (!this.isDirty) {
-            this.isDirty = true;
-            log.debug("Marking file dirty: {} (Reason: {})", getAbsolutePath(), reason, new Exception("Stack Trace"));
-        } else {
-            log.trace("File already dirty: {} (Reason: {})", getAbsolutePath(), reason);
-        }
-    }
 
     public int read(FSPointer buffer, long size, long offset) throws IOException {
         open(); // make sure file is open
@@ -104,7 +86,7 @@ public class BlockchainFile extends AbstractDeployablePath implements File {
 
         close();
 
-        markDirty("truncate");
+        isDirty = true;
 
         lastDeploymentOffset = 0;
 
@@ -112,9 +94,9 @@ public class BlockchainFile extends AbstractDeployablePath implements File {
         cachedFile = Files.createTempFile(name, null).toFile();
 
         refreshLastUpdated();
-        enqueueMutation(RholangExpressionConstructor.forgetChanel(getAbsolutePath()), getSigningKey());
+        enqueueMutation(RholangExpressionConstructor.forgetChanel(getAbsolutePath()));
         otherChunks.forEach((chunkNumber, subChannel) -> {
-            enqueueMutation(RholangExpressionConstructor.forgetChanel(subChannel), getSigningKey());
+            enqueueMutation(RholangExpressionConstructor.forgetChanel(subChannel));
         });
 
         otherChunks = new ConcurrentHashMap<>();
@@ -130,40 +112,16 @@ public class BlockchainFile extends AbstractDeployablePath implements File {
 
         open(); // make sure file is open
 
+        if (size >= 0) {
+            size = -1; // size changed, reset it
+        }
+
+        isDirty = true;
+        refreshLastUpdated();
+
         byte[] bytesToWrite = new byte[(int) bufSize];
         buffer.get(0, bytesToWrite, 0, (int) bufSize);
-
         synchronized (this) {
-            // Check for idempotency: if content is identical, skip write and deployment
-            // This prevents creating infinite loops if the system syncs the same content
-            // back
-            try {
-                if (rif.length() >= writeOffset + bufSize) {
-                    rif.seek(writeOffset);
-                    byte[] existing = new byte[(int) bufSize];
-                    int read = rif.read(existing);
-                    if (read == bufSize && java.util.Arrays.equals(existing, bytesToWrite)) {
-                        log.debug("Content identical at offset {}, skipping write/deploy to prevent loop", writeOffset);
-                        // Ensure isDirty is false since content matches
-                        if (isDirty) {
-                            log.debug("Clearing stale isDirty flag on identical write");
-                            isDirty = false;
-                        }
-                        return (int) bufSize;
-                    }
-                }
-            } catch (IOException e) {
-                // Ignore read errors during check, proceed to write
-                log.warn("Failed to check for idempotency", e);
-            }
-
-            if (size >= 0) {
-                size = -1; // size changed, reset it
-            }
-
-            markDirty("write");
-            refreshLastUpdated();
-
             rif.seek(writeOffset);
             rif.write(bytesToWrite, 0, (int) bufSize);
         }
@@ -178,12 +136,9 @@ public class BlockchainFile extends AbstractDeployablePath implements File {
     }
 
     private void deployChunk() throws IOException {
-        log.debug("deployChunk called for file: {} offset: {} size: {}", getAbsolutePath(), lastDeploymentOffset,
-                getSize());
         open(); // make sure file is open
 
         int size = (int) Math.min(getSize() - lastDeploymentOffset, MAX_FILE_CHUNK_SIZE);
-        log.debug("deployChunk calculated chunk size: {}", size);
 
         byte[] bytes = new byte[size];
         synchronized (this) {
@@ -197,7 +152,6 @@ public class BlockchainFile extends AbstractDeployablePath implements File {
 
         int chunkNumber = (int) (lastDeploymentOffset / MAX_FILE_CHUNK_SIZE);
         String rholang;
-        byte[] key = getSigningKey();
         if (chunkNumber == 0) {
             rholang = RholangExpressionConstructor.updateFileContent(getAbsolutePath(), bytes);
         } else {
@@ -207,7 +161,7 @@ public class BlockchainFile extends AbstractDeployablePath implements File {
             isOtherChunksDeployed = false;
         }
         refreshLastUpdated();
-        enqueueMutation(rholang, key);
+        enqueueMutation(rholang);
 
         lastDeploymentOffset = lastDeploymentOffset + size;
     }
@@ -233,21 +187,16 @@ public class BlockchainFile extends AbstractDeployablePath implements File {
     }
 
     public void close() {
-        log.debug("close() called for file: {} lastDeploymentOffset: {} size: {}", getAbsolutePath(),
-                lastDeploymentOffset, getSize());
         try {
             // append a last part of the file if any
             if (lastDeploymentOffset < getSize()) {
-                log.debug("close() triggering deployChunk for remaining {} bytes", getSize() - lastDeploymentOffset);
                 deployChunk();
-            } else {
-                log.debug("close() skipping deployChunk, everything deployed");
             }
 
             if (!isOtherChunksDeployed) {
                 if (!otherChunks.isEmpty()) {
                     refreshLastUpdated();
-                    enqueueMutation(RholangExpressionConstructor.updateOtherChunksMap(getAbsolutePath(), otherChunks), getSigningKey());
+                    enqueueMutation(RholangExpressionConstructor.updateOtherChunksMap(getAbsolutePath(), otherChunks));
                 }
                 isOtherChunksDeployed = true;
             }
@@ -291,28 +240,25 @@ public class BlockchainFile extends AbstractDeployablePath implements File {
         this.isOtherChunksDeployed = true;
     }
 
-    public boolean onChange() {
+    public void onChange() {
         if (isDirty) {
             if (isDeployable()) {
                 try {
-                    byte[] key = getSigningKey();
                     refreshLastUpdated();
                     String rholangExpression = Files.readString(cachedFile.toPath());
-                    enqueueMutation(rholangExpression, key); // deploy a file as rho expression
+                    enqueueMutation(rholangExpression); // deploy a file as rho expression
                 } catch (IOException e) {
                     e.printStackTrace();
                 }
             }
             isDirty = false;
-            return true;
         }
-        return false;
     }
 
     @Override
     public void rename(String newName, Directory newParent) throws OperationNotPermitted {
 
-        markDirty("rename");
+        isDirty = true;
         refreshLastUpdated();
 
         boolean wasEncrypted = PathUtils.isEncryptedExtension(name);
@@ -325,7 +271,7 @@ public class BlockchainFile extends AbstractDeployablePath implements File {
         boolean needDecrypt = wasEncrypted && !willBeEncrypted;
 
         if (needEncrypt || needDecrypt) {
-            enqueueMutation(RholangExpressionConstructor.forgetChanel(getAbsolutePath()), getSigningKey()); // delete old
+            enqueueMutation(RholangExpressionConstructor.forgetChanel(getAbsolutePath())); // delete old
 
             this.name = newName;
             this.parent = newParent;
@@ -360,6 +306,7 @@ public class BlockchainFile extends AbstractDeployablePath implements File {
         return PathUtils.isDeployableFile(name);
     }
 
+
     @Override
     public void cleanLocalCache() {
         try {
@@ -370,22 +317,7 @@ public class BlockchainFile extends AbstractDeployablePath implements File {
     }
 
     @Override
-    public void getAttr(io.f1r3fly.f1r3drive.filesystem.bridge.FSFileStat stat, io.f1r3fly.f1r3drive.filesystem.bridge.FSContext context) {
-        super.getAttr(stat, context);
-        stat.setSize(getSize());
-        // Default mode for files: 0100644 (regular file, rw-r--r--)
-        stat.setMode(0100644);
-    }
-
-    @Override
     public synchronized void delete() {
-        if (rif != null) {
-            try {
-                rif.close();
-            } catch (IOException e) {
-                // ignore
-            }
-        }
         cachedFile.delete();
         super.delete();
     }

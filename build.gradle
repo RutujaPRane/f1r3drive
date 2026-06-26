@@ -1,9 +1,10 @@
 plugins {
     id 'java-library'
-    id 'com.github.johnrengelman.shadow' version '8.1.1'
+    id 'com.github.johnrengelman.shadow' version '7.0.0'
     id 'net.researchgate.release' version '2.8.1'
     id 'maven-publish'
     id "com.google.protobuf" version "0.9.4"
+    id "com.diffplug.spotless" version "6.25.0"
 }
 
 def protobufVersion = '3.25.2'
@@ -49,46 +50,7 @@ sourceSets {
             srcDirs 'build/generated/source/proto/main/java'
         }
     }
-
-    // Platform-specific source sets
-    macos {
-        java {
-            srcDir 'src/macos/java'
-        }
-        resources {
-            srcDir 'src/macos/resources'
-        }
-        compileClasspath += sourceSets.main.output
-        runtimeClasspath += output + compileClasspath
-    }
-
-    linux {
-        java {
-            srcDir 'src/linux/java'
-        }
-        resources {
-            srcDir 'src/linux/resources'
-        }
-        compileClasspath += sourceSets.main.output
-        runtimeClasspath += output + compileClasspath
-    }
-
-    windows {
-        java {
-            srcDir 'src/windows/java'
-        }
-        resources {
-            srcDir 'src/windows/resources'
-        }
-        compileClasspath += sourceSets.main.output
-        runtimeClasspath += output + compileClasspath
-    }
-
-    test {
-        compileClasspath += sourceSets.macos.output + sourceSets.linux.output + sourceSets.windows.output
-        runtimeClasspath += sourceSets.macos.output + sourceSets.linux.output + sourceSets.windows.output
-    }
-
+    
     e2e {
         java {
             srcDir 'src/e2e/java'
@@ -109,109 +71,34 @@ java {
     }
 }
 
-// Default shadowJar task
+spotless {
+    // Only enforce formatting on files changed relative to the current HEAD,
+    // so introducing Spotless does not require reformatting the whole codebase.
+    // Run `./gradlew spotlessApply` to format a wider baseline, then consider
+    // switching this to a trunk ref (e.g. 'origin/main').
+    ratchetFrom 'HEAD'
+
+    java {
+        // Hand-written sources only; never touch generated protobuf/gRPC code.
+        target 'src/main/java/**/*.java', 'src/test/java/**/*.java', 'src/e2e/java/**/*.java'
+        targetExclude 'build/**'
+
+        googleJavaFormat('1.22.0')
+        removeUnusedImports()
+        trimTrailingWhitespace()
+        endWithNewline()
+    }
+}
+
 shadowJar {
     mergeServiceFiles()
-    archiveClassifier = '' // Remove classifier to make this the main JAR
-
+    archiveFileName = 'f1r3drive-app.jar' // Use specific name to avoid collision with standard jar
+    relocate 'org.objectweb.asm', 'org.objectweb.asm.shaded'
+    
     manifest {
         attributes(
                 'Main-Class': 'io.f1r3fly.f1r3drive.app.F1r3DriveCli'
         )
-    }
-
-    // Include platform-specific sources based on platformVariant property
-    def platformVariant = project.findProperty('platformVariant') ?: 'all'
-
-    if (platformVariant == 'macos') {
-        from sourceSets.main.output
-        from sourceSets.macos.output
-        archiveBaseName = 'f1r3drive-macos'
-    } else if (platformVariant == 'linux') {
-        from sourceSets.main.output
-        from sourceSets.linux.output
-        archiveBaseName = 'f1r3drive-linux'
-    } else if (platformVariant == 'windows') {
-        from sourceSets.main.output
-        from sourceSets.windows.output
-        archiveBaseName = 'f1r3drive-windows'
-    } else {
-        // Default: include all platforms
-        from sourceSets.main.output
-        from sourceSets.macos.output
-        from sourceSets.linux.output
-        from sourceSets.windows.output
-    }
-}
-
-// Platform-specific shadowJar tasks
-task shadowJarMacOS(type: com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar) {
-    group = 'build'
-    description = 'Build macOS-specific JAR'
-    archiveBaseName = 'f1r3drive-macos'
-    archiveClassifier = ''
-    archiveVersion = project.version
-
-    // Use main shadowJar as base configuration
-    dependsOn shadowJar
-
-    // Clear and rebuild
-    from(shadowJar.outputs.files.collect { zipTree(it) }) {
-        // Include everything from main shadowJar
-    }
-    from sourceSets.macos.output
-
-    mergeServiceFiles()
-    duplicatesStrategy = DuplicatesStrategy.INCLUDE
-
-    manifest {
-        attributes('Main-Class': 'io.f1r3fly.f1r3drive.app.F1r3DriveCli')
-    }
-}
-
-task shadowJarLinux(type: com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar) {
-    group = 'build'
-    description = 'Build Linux-specific JAR'
-    archiveClassifier = ''
-    archiveBaseName = 'f1r3drive-linux'
-
-    // Use main shadowJar as base configuration
-    dependsOn shadowJar
-
-    // Clear and rebuild
-    from(shadowJar.outputs.files.collect { zipTree(it) }) {
-        // Include everything from main shadowJar
-    }
-    from sourceSets.linux.output
-
-    mergeServiceFiles()
-    duplicatesStrategy = DuplicatesStrategy.INCLUDE
-
-    manifest {
-        attributes('Main-Class': 'io.f1r3fly.f1r3drive.app.F1r3DriveCli')
-    }
-}
-
-task shadowJarWindows(type: com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar) {
-    group = 'build'
-    description = 'Build Windows-specific JAR'
-    archiveClassifier = ''
-    archiveBaseName = 'f1r3drive-windows'
-
-    // Use main shadowJar as base configuration
-    dependsOn shadowJar
-
-    // Clear and rebuild
-    from(shadowJar.outputs.files.collect { zipTree(it) }) {
-        // Include everything from main shadowJar
-    }
-    from sourceSets.windows.output
-
-    mergeServiceFiles()
-    duplicatesStrategy = DuplicatesStrategy.INCLUDE
-
-    manifest {
-        attributes('Main-Class': 'io.f1r3fly.f1r3drive.app.F1r3DriveCli')
     }
 }
 
@@ -244,10 +131,10 @@ task e2eTest(type: Test) {
     group = 'verification'
     testClassesDirs = sourceSets.e2e.output.classesDirs
     classpath = sourceSets.e2e.runtimeClasspath
-
+    
     useJUnitPlatform()
     maxHeapSize = '4096m'
-
+    
     // Don't run e2e tests as part of the regular build
     shouldRunAfter test
 }
@@ -257,16 +144,6 @@ task e2eTest(type: Test) {
 configurations {
     e2eImplementation.extendsFrom testImplementation
     e2eRuntimeOnly.extendsFrom testRuntimeOnly
-
-    // Platform-specific configurations
-    macosImplementation.extendsFrom implementation
-    macosRuntimeOnly.extendsFrom runtimeOnly
-
-    linuxImplementation.extendsFrom implementation
-    linuxRuntimeOnly.extendsFrom runtimeOnly
-
-    windowsImplementation.extendsFrom implementation
-    windowsRuntimeOnly.extendsFrom runtimeOnly
 }
 
 dependencies {
@@ -274,13 +151,9 @@ dependencies {
     api 'com.github.jnr:jnr-posix:3.1.19'
     api 'com.github.jnr:jnr-constants:0.10.4'
 
-    // FUSE dependencies - needed for existing Linux classes in main sourceset
     implementation 'com.github.serceman:jnr-fuse:0.5.8'
     implementation 'com.github.jnr:jffi:1.3.10'
     implementation 'com.github.jnr:jffi:1.3.10:native'
-
-    // Additional platform-specific FUSE dependencies
-    linuxImplementation 'com.github.serceman:jnr-fuse:0.5.8'
 
     implementation group: 'javax.annotation', name: 'javax.annotation-api', version: '1.3.2'
 
@@ -288,13 +161,10 @@ dependencies {
     implementation group: 'io.grpc', name: 'grpc-all', version: '1.61.0'
 
     implementation group: 'com.rfksystems', name: 'blake2b', version: '2.0.0'
-
-    // Caffeine Cache for high-performance caching
-    implementation 'com.github.ben-manes.caffeine:caffeine:3.1.8'
-
+    
     // Add Keccak-256 implementation
     implementation 'org.bouncycastle:bcprov-jdk15on:1.70'
-
+    
     implementation group: 'fr.acinq.secp256k1', name: 'secp256k1-kmp', version: secpVersion
     runtimeOnly group: 'fr.acinq.secp256k1', name: 'secp256k1-kmp-jni-jvm', version: secpVersion
 
@@ -322,8 +192,6 @@ dependencies {
     // https://mvnrepository.com/artifact/commons-codec/commons-codec
     implementation 'commons-codec:commons-codec:1.17.0'
 
-
-
     testImplementation "org.junit.jupiter:junit-jupiter-params:$junitVersion"
 
 }
@@ -338,40 +206,6 @@ release {
     buildTasks = ['clean', 'assemble', 'shadowJar']
 }
 
-// Platform-specific build tasks
-task buildMacOS {
-    group = 'build'
-    description = 'Build macOS-specific JAR with native dependencies'
-    dependsOn shadowJarMacOS
-
-    doLast {
-        println "Built macOS JAR: ${shadowJarMacOS.archiveFile.get().asFile.name}"
-        println "Size: ${shadowJarMacOS.archiveFile.get().asFile.length() / (1024 * 1024)} MB"
-    }
-}
-
-task buildLinux {
-    group = 'build'
-    description = 'Build Linux-specific JAR with FUSE dependencies'
-    dependsOn shadowJarLinux
-
-    doLast {
-        println "Built Linux JAR: ${shadowJarLinux.archiveFile.get().asFile.name}"
-        println "Size: ${shadowJarLinux.archiveFile.get().asFile.length() / (1024 * 1024)} MB"
-    }
-}
-
-task buildWindows {
-    group = 'build'
-    description = 'Build Windows-specific JAR (future implementation)'
-    dependsOn shadowJarWindows
-
-    doLast {
-        println "Built Windows JAR: ${shadowJarWindows.archiveFile.get().asFile.name}"
-        println "Size: ${shadowJarWindows.archiveFile.get().asFile.length() / (1024 * 1024)} MB"
-    }
-}
-
 // Make build depend on shadowJar
 build.dependsOn shadowJar
 
@@ -379,7 +213,7 @@ publishing {
     publications {
         mavenJava(MavenPublication) {
             artifactId = 'f1r3Drive'
-
+            
             // Use only the shadow JAR as the main artifact
             artifact shadowJar
 
@@ -416,7 +250,7 @@ publishing {
             name = 'projectLocal'
             url = file("${buildDir}/repo")
         }
-
+        
         maven {
             name = "GitHubPackages"
             url = "https://maven.pkg.github.com/${System.getenv("GITHUB_REPOSITORY")}"
@@ -432,29 +266,10 @@ publishing {
 
 
 
-// Set duplicates strategy for all resource processing tasks
-tasks.withType(ProcessResources) {
-    duplicatesStrategy = DuplicatesStrategy.INCLUDE
-}
-
 tasks.named('processResources') {
     duplicatesStrategy = DuplicatesStrategy.INCLUDE // or EXCLUDE, depending on desired behavior
 }
 
-
-
-// MacOS native run task
-task runMacOS(type: JavaExec) {
-    group = 'application'
-    description = 'Runs the F1r3Drive macOS CLI'
-    mainClass = 'io.f1r3fly.f1r3drive.app.F1r3DriveCli'
-    classpath = sourceSets.macos.runtimeClasspath
-    
-    // Allow passing arguments
-    if (project.hasProperty('args')) {
-        args(project.args.split(' '))
-    }
-    
-    // Pass system properties
-    systemProperties System.getProperties()
+tasks.named('processE2eResources') {
+    duplicatesStrategy = DuplicatesStrategy.INCLUDE
 }

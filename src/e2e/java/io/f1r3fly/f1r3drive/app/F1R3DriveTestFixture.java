@@ -117,13 +117,13 @@ public class F1R3DriveTestFixture {
 
         f1r3flyBoot = new GenericContainer<>(F1R3FLY_IMAGE)
             // Stage config files + init script (Docker volume at /var/lib/rnode hides files copied there)
-            .withCopyFileToContainer(MountableFile.forHostPath(new File("local-shard/scripts/boot-init.sh").getAbsolutePath(), 0777), "/opt/rnode-staging/init.sh")
-            .withCopyFileToContainer(MountableFile.forHostPath(new File("local-shard/conf/bootstrap-ceremony-test.conf").getAbsolutePath(), 0777), "/opt/rnode-staging/rnode.conf")
-            .withCopyFileToContainer(MountableFile.forHostPath(new File("local-shard/genesis/wallets.txt").getAbsolutePath(), 0777), "/opt/rnode-staging/genesis/wallets.txt")
-            .withCopyFileToContainer(MountableFile.forHostPath(new File("local-shard/genesis/singleton-bonds.txt").getAbsolutePath(), 0777), "/opt/rnode-staging/genesis/bonds.txt")
-            .withCopyFileToContainer(MountableFile.forHostPath(new File("local-shard/conf/logback.xml").getAbsolutePath(), 0777), "/opt/rnode-staging/logback.xml")
-            .withCopyFileToContainer(MountableFile.forHostPath(new File("local-shard/certs/bootstrap/node.certificate.pem").getAbsolutePath(), 0777), "/opt/rnode-staging/node.certificate.pem")
-            .withCopyFileToContainer(MountableFile.forHostPath(new File("local-shard/certs/bootstrap/node.key.pem").getAbsolutePath(), 0777), "/opt/rnode-staging/node.key.pem")
+            .withCopyFileToContainer(MountableFile.forHostPath(new File("src/e2e/resources/local-shard/scripts/boot-init.sh").getAbsolutePath(), 0777), "/opt/rnode-staging/init.sh")
+            .withCopyFileToContainer(MountableFile.forHostPath(new File("src/e2e/resources/local-shard/conf/bootstrap-ceremony-test.conf").getAbsolutePath(), 0777), "/opt/rnode-staging/rnode.conf")
+            .withCopyFileToContainer(MountableFile.forHostPath(new File("src/e2e/resources/local-shard/genesis/wallets.txt").getAbsolutePath(), 0777), "/opt/rnode-staging/genesis/wallets.txt")
+            .withCopyFileToContainer(MountableFile.forHostPath(new File("src/e2e/resources/local-shard/genesis/singleton-bonds.txt").getAbsolutePath(), 0777), "/opt/rnode-staging/genesis/bonds.txt")
+            .withCopyFileToContainer(MountableFile.forHostPath(new File("src/e2e/resources/local-shard/conf/logback.xml").getAbsolutePath(), 0777), "/opt/rnode-staging/logback.xml")
+            .withCopyFileToContainer(MountableFile.forHostPath(new File("src/e2e/resources/local-shard/certs/bootstrap/node.certificate.pem").getAbsolutePath(), 0777), "/opt/rnode-staging/node.certificate.pem")
+            .withCopyFileToContainer(MountableFile.forHostPath(new File("src/e2e/resources/local-shard/certs/bootstrap/node.key.pem").getAbsolutePath(), 0777), "/opt/rnode-staging/node.key.pem")
             .withExposedPorts(GRPC_PORT, PROTOCOL_PORT, DISCOVERY_PORT)
             .withCreateContainerCmdModifier(cmd -> {
                 // Init script copies config from staging into volume, then execs rnode with "$@"
@@ -151,8 +151,8 @@ public class F1R3DriveTestFixture {
         log.info("Using bootstrap address: {}", f1r3flyBootAddress);
 
         f1r3flyObserver = new GenericContainer<>(F1R3FLY_IMAGE)
-            .withCopyFileToContainer(MountableFile.forHostPath(new File("local-shard/scripts/observer-init.sh").getAbsolutePath(), 0777), "/opt/rnode-staging/init.sh")
-            .withCopyFileToContainer(MountableFile.forHostPath(new File("local-shard/conf/logback.xml").getAbsolutePath(), 0777), "/opt/rnode-staging/logback.xml")
+            .withCopyFileToContainer(MountableFile.forHostPath(new File("src/e2e/resources/local-shard/scripts/observer-init.sh").getAbsolutePath(), 0777), "/opt/rnode-staging/init.sh")
+            .withCopyFileToContainer(MountableFile.forHostPath(new File("src/e2e/resources/local-shard/conf/logback.xml").getAbsolutePath(), 0777), "/opt/rnode-staging/logback.xml")
             .withExposedPorts(GRPC_PORT)
             .withCreateContainerCmdModifier(cmd -> {
                 cmd.withEntrypoint("/opt/rnode-staging/init.sh");
@@ -317,7 +317,7 @@ public class F1R3DriveTestFixture {
 
     protected static void deleteDirectories() {
         deleteDirectory(MOUNT_POINT_FILE);
-        deleteDirectory(new File("local-shard/data"));
+        deleteDirectory(new File("src/e2e/resources/local-shard/data"));
     }
 
     protected static void forceUmountAndCleanup() {
